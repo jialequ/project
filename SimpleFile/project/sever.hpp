@@ -9,6 +9,7 @@
 #include "tcpsocket.hpp"
 #include "epollwait.hpp"
 #include "threadpool.hpp"
+#include "http.hpp"
 using namespace std;
 class Server
 {
@@ -24,18 +25,24 @@ class Server
             }
             //创建并初始化epoll, 套接字未就绪的话就不用一直等待, 让操作系统来监听
             //如果客户端一直不发送消息就会占用线程池, 所以我们采用事件总线进行监控, 这样不会占用资源
-            ret = _epoll.Init();
+            ret = _epoll.EpollInit();
+            if(ret == false)
+            {
+                return false;
+            }
+            //pool init
+            ret = _pool.PoolInit();
             if(ret == false)
             {
                 return false;
             }
             //将监听套接字添加到epoll红黑树中
-            _epoll.Add(_lst_sock);
+            _epoll.EpollAdd(_lst_sock);
             while(1)
             {
                 //epoll开始监听, 如果有就绪的描述符则添加进链表中, 然后将就绪的描述符全部pushback进list中
                 vector<TcpSocket> list;
-                ret = _epoll.Wait(list);
+                ret = _epoll.EpollWait(list);
                 if(ret == false)
                 {
                     continue;
@@ -46,51 +53,53 @@ class Server
                     {
                         //如果是监听套接字就获取新连接, 然后将新的描述符添加进红黑树中
                         TcpSocket cli_sock;
-                        ret = _lst_sock.Accept(cli_sock);
+                        ret = _lst_sock.SocketAccept(cli_sock);
                         if(ret == false)
                         {
                             return false;
                         }
                         cli_sock.SetNonblock();
-                        _epoll.Add(cli_sock);
+                        _epoll.EpollAdd(cli_sock);
                     }
                     else 
                     {
                         //不是监听套接字则组织一个任务抛进线程池, 设置任务(socket和对应的处理函数), 添加进任务队列
                         //但是这里注意, 一定要在_epoll中Del, epoll中包含每一个sockfd, 要是不进行删除, 会一直触发事件
                         ThreadTask tt;
-                        tt.SetTask(list[i], HttpHandler);
+                        tt.SetTask(list[i].GetFd(), ThreadHandler);
                         _pool.TaskPush(tt);
-                        _epoll.Del(list[i]);
+                        _epoll.EpollDel(list[i]);
                     }
                 }
             }
-            _lst_sock.Close();
+            _lst_sock.SocketClose();
             return true;
         }
     public:
-        static void HttpHandler(TcpSocket& clisock)
+        static void ThreadHandler(int sockfd)
         {
+            TcpSocket sock;
+            sock.SetFd(sockfd);
             //1.请求类, 进行请求解析
-            Request req;
-            int status = req.ParseHeader(clisock);
+            HttpRequest req;
+            //回复类, 组织回复数据
+            HttpResponse rsp;
+            int status = req.RequestParse(sock);
             if(status != 200)
             {
                 //则直接响应错误
-                req.SendError(status);
-                clisock.Close();
+                rsp.status = status;
+                rsp.ErrorProcess();
+                sock.SocketClose();
                 return;
             }
-            //回复类, 组织回复数据
-            Response rsp;
-            //2.根据req进行处理, 然后填充rsp
-            Process(req, rsp);
-            //3.发送响应给客户端
-            rsp.SendResponse(clisock);
+            //2.根据req进行处理
+            rsp.NormalProcess(sock);
             //当前采用短连接, 直接处理完毕后关闭套接字
-            clisock.Close();
+            sock.SocketClose();
             return;
         }
+        bool HttpProcess(HttpRequest &req, HttpResponse &rsp);
     private:
         TcpSocket _lst_sock;
         ThreadPool _pool;

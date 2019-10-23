@@ -22,7 +22,7 @@ class Epoll
         ~Epoll()
         {}
     public:
-        bool Init()
+        bool EpollInit()
         {
             //创建一个eventpoll结构, 包括红黑树和链表
             _epfd = epoll_create(MAX_EPOLL);
@@ -34,7 +34,7 @@ class Epoll
             return true;
         }
 
-        bool Add(TcpSocket& sock)
+        bool EpollAdd(TcpSocket& sock)
         {
             //向创建的eventpoll结构中的红黑树中添加节点epoll_event
             int fd = sock.GetFd();
@@ -49,7 +49,7 @@ class Epoll
             }
             return true;
         }
-        bool Del(TcpSocket& sock)
+        bool EpollDel(TcpSocket& sock)
         {
             int fd = sock.GetFd();
             int ret = epoll_ctl(_epfd, EPOLL_CTL_DEL, fd, NULL);
@@ -60,7 +60,7 @@ class Epoll
             }
             return true;
         }
-        bool Wait(vector<TcpSocket>& list, int timeout = 3000)
+        bool EpollWait(vector<TcpSocket>& list, int timeout = 3000)
         {
             epoll_event events[MAX_EPOLL];
             int nfds = epoll_wait(_epfd, events, MAX_EPOLL, timeout);

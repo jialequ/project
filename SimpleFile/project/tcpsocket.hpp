@@ -95,7 +95,7 @@ class TcpSocket
 
             return true;
         }
-        bool Connect(string &ip, uint16_t port)
+        bool SocketConnect(string &ip, uint16_t port)
         {
             sockaddr_in srv_addr;
             srv_addr.sin_family = AF_INET;
@@ -110,7 +110,7 @@ class TcpSocket
             }
             return true;
         }
-        bool Accept(TcpSocket &newsock)
+        bool SocketAccept(TcpSocket &newsock)
         {
             sockaddr_in addr;
             socklen_t len = sizeof(addr);
@@ -124,7 +124,7 @@ class TcpSocket
             newsock.SetNonblock();
             return true;
         }
-        bool Send(string &buf)
+        bool SocketSend(string &buf)
         {
             int ret = send(_sockfd, &buf[0], buf.size(), 0);
             if(ret < 0)
@@ -134,7 +134,7 @@ class TcpSocket
             }
             return true;
         }
-        bool RecvPeek(string& buf)
+        bool SocketRecvPeek(string& buf)
         {
             buf.clear();
             char tmp[8192] = {0}; 
@@ -151,7 +151,7 @@ class TcpSocket
             buf.assign(tmp, ret);
             return true;
         }
-        bool Recv(string &buf, int len)
+        bool SocketRecv(string &buf, int len)
         {
             buf.resize(len);
             int rlen = 0, ret;
@@ -171,7 +171,7 @@ class TcpSocket
             }
             return true;
         }
-        bool Close()
+        bool SocketClose()
         {
             if(_sockfd > 0)
             {
