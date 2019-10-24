@@ -65,8 +65,7 @@ class Server
                     {
                         //不是监听套接字则组织一个任务抛进线程池, 设置任务(socket和对应的处理函数), 添加进任务队列
                         //但是这里注意, 一定要在_epoll中Del, epoll中包含每一个sockfd, 要是不进行删除, 会一直触发事件
-                        ThreadTask tt;
-                        tt.SetTask(list[i].GetFd(), ThreadHandler);
+                        ThreadTask tt(list[i].GetFd(), ThreadHandler);
                         _pool.TaskPush(tt);
                         _epoll.EpollDel(list[i]);
                     }
@@ -88,18 +87,23 @@ class Server
             if(status != 200)
             {
                 //则直接响应错误
-                rsp.status = status;
-                rsp.ErrorProcess();
+                rsp._status = status;
+                rsp.ErrorProcess(sock);
                 sock.SocketClose();
                 return;
             }
             //2.根据req进行处理
+            HttpProcess(req, rsp);
+            //将处理结果响应给客户端
             rsp.NormalProcess(sock);
             //当前采用短连接, 直接处理完毕后关闭套接字
             sock.SocketClose();
             return;
         }
-        bool HttpProcess(HttpRequest &req, HttpResponse &rsp);
+        static bool HttpProcess(HttpRequest &req, HttpResponse &rsp)
+        {
+            return true;
+        }
     private:
         TcpSocket _lst_sock;
         ThreadPool _pool;

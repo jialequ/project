@@ -35,7 +35,7 @@ class ThreadTask
     //设置
     //运行
 public:
-    ThreadTask(int data = 0,handler_t handle = NULL)
+    ThreadTask(int data,handler_t handle)
         :_data(data)
         ,_handle(handle)
     {}
