@@ -1,6 +1,7 @@
 #pragma once
 #include "tcpsocket.hpp"
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -109,11 +110,7 @@ class HttpRequest
             //2.对头部进行分割(\r\n),得到list,使用boost库split, token_compress_on(去掉空行)
             vector<string> header_list;
             boost::split(header_list, header, boost::is_any_of("\r\n"), boost::token_compress_on);
-            for(auto i : header_list)
-            {
-                cout << "list[i]=[" << i << "]" << endl;
-            }
-            //3.list[0]-首行,进行首行解析
+             //3.list[0]-首行,进行首行解析
             if(FirstLineParse(header_list[0]) == false)
             {
                 return false;
@@ -133,20 +130,6 @@ class HttpRequest
                 string val = header_list[i].substr(pos + 2);
                 _headers[key] = val;
             }
-            //5.请求信息检验
-            //方法+路径
-            cout << "method:[" << _method << "]" << endl;
-            cout << "path:[" << _path << "]" << endl;
-            //请求查询字符串
-            for(auto i : _param)
-            {
-                cout << i.first << "=" << i.second << endl;
-            }
-            //请求头部
-             for(auto i : _headers)
-            {
-                cout << i.first << "=" << i.second << endl;
-            }
             return 200;
         }
 };
@@ -154,13 +137,53 @@ class HttpResponse
 {
     public:
         int _status;
+        string _body;
+        unordered_map<string, string> _headers;
+    private:
+        string GetDesc()
+        {
+            //获取描述信息
+            switch(_status)
+            {
+                case 400: return "Bad Resquse";
+                case 404: return "Not Found";
+                case 200: return "ok";
+            }
+            return "UnKnow";
+        }
     public:
+        bool SetHeader(const string& key, const string& val)
+        {
+            _headers[key] = val;
+            return true;
+        }
         bool ErrorProcess(TcpSocket& sock)
         {
             return true;
         }
         bool NormalProcess(TcpSocket& sock)
         {
+            //组织数据
+            //首行
+            string line;
+            string header;
+            std::stringstream tmp;
+
+            tmp << "HTTP/1.1" << " " << _status << " " << GetDesc();
+            tmp << "\r\n";
+            //如果没找到正文长度, 就自己添加
+            if(_headers.find("Content-Length") == _headers.end())
+            {
+                string len = to_string(_body.size());
+                _headers["Content-Length"] = len;
+            }
+            for(auto i : _headers)
+            {
+                tmp << i.first << ": " << i.second << "\r\n";
+            }
+            tmp << "\r\n";
+            sock.SocketSend(tmp.str());
+            sock.SocketSend(_body);
             return true;
         }
 };

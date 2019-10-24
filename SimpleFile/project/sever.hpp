@@ -10,7 +10,11 @@
 #include "epollwait.hpp"
 #include "threadpool.hpp"
 #include "http.hpp"
+#include <boost/filesystem.hpp>
 using namespace std;
+
+#define WWW_ROOT "./www"
+
 class Server
 {
     public:
@@ -102,6 +106,75 @@ class Server
         }
         static bool HttpProcess(HttpRequest &req, HttpResponse &rsp)
         {
+            //如果请求是post请求----应该是CGI处理, 多进程进行处理
+            //若请求是一个GET请求---但是若查询字符串不为空, 也是CGI
+            //否则, 如果请求时GET, 并且查询字符串为空
+            //      若请求的是一个目录: 查看文件列表
+            //      若请求的是一个文件: 文件下载
+            
+            //当前所在路径 + 给的路径 = 真正路径
+            string realpath = WWW_ROOT + req._path;
+            if(!boost::filesystem::exists(realpath))
+            {   
+                //如果不存在则将状态码置为404, 客户端错误
+                rsp._status = 404;
+                cerr << "realpath:[" << realpath << "]" << endl;
+                return false;
+            }
+            if((req._method == "GET" && req._param.size() != 0) || req._method == "POST")
+            {
+                //文件上传请求
+            }
+            else 
+            {
+                //文件下载/文件列表请求
+                if(boost::filesystem::is_directory(realpath))
+                {
+                    //列表展示请求
+                    ListShow(realpath, rsp._body);
+                    rsp.SetHeader("Content-Type", "text/html");
+                }
+                else 
+                {
+                    //文件下载请求
+                }
+            }
+            rsp._status = 200;
+            return true;
+        }
+        static bool ListShow(string& path, string& body)
+        {
+            stringstream tmp;
+            tmp << "<html><head><style>";
+            tmp << "*{margin : 0;}";
+            tmp << ".main-window {height : 100%; width : 80%; margin : 0 auto;}";
+            tmp << ".upload {position : relative; height : 20%; width : 100%; background-color : #33c0b9;}";
+            tmp << ".listshow {position : relative; height : 80%; width : 100%; background : #6fcad6;}";
+            tmp << "</style></head><body>";
+            tmp << "<div class='main-window'>";
+            tmp << "<div class='upload'></div><hr />";
+            tmp << "<div class='listshow'><ol>";
+            //组织每个节点信息
+            boost::filesystem::directory_iterator begin(path);
+            boost::filesystem::directory_iterator end;
+            for(; begin != end; ++begin)
+            {
+                string name = begin->path().string();
+                cout << "name:[" << name << "]" << endl;
+                cout << "name:[" << name << "]" << endl;
+                int64_t mtime = boost::filesystem::last_write_time(name);
+                int ssize = boost::filesystem::file_size(name);
+                cout << "name:[" << name << "]" << endl;
+                cout << "mtime:[" << mtime << "]" << endl;
+                cout << "ssize:[" << ssize << "]" << endl;
+            }
+            tmp << "<li><strong><a href='#'>a.txt</a><br /></strong>";
+            tmp << "<small>modified: date";
+            tmp << "<br /> filetype: application-ostream 16kbytes";
+            tmp << "</small></li>";
+            //组织每个节点信息
+            tmp << "</ol></div><hr /></div></body></html>";
+            body = tmp.str();
             return true;
         }
     private:

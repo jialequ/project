@@ -124,7 +124,7 @@ class TcpSocket
             newsock.SetNonblock();
             return true;
         }
-        bool SocketSend(string &buf)
+        bool SocketSend(const string &buf)
         {
             int ret = send(_sockfd, &buf[0], buf.size(), 0);
             if(ret < 0)
