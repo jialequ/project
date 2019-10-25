@@ -165,32 +165,17 @@ class Server
                 string name = begin->path().filename().string();
                 //最后一次修改时间
                 int64_t mtime = boost::filesystem::last_write_time(pathname);
-                if(boost::filesystem::is_directory(pathname))
-                {
-                    //如果是一个目录
-                    tmp << "<li><strong><a href='#'>";
-                    tmp << name << "/"; 
-                    tmp << "</a><br /></strong>";
-                    tmp << "<small>modified: ";
-                    tmp << mtime;
-                    tmp << "<br /> filetype: directory ";
-                    tmp << "</small></li>";
-                }
-                else 
-                {
-                    //文件大小
-                    int ssize = boost::filesystem::file_size(pathname);
-                    //是一个普通文件
-                    tmp << "<li><strong><a href='#'>";
-                    tmp << name; 
-                    tmp << "</a><br /></strong>";
-                    tmp << "<small>modified: ";
-                    tmp << mtime;
-                    tmp << "<br /> filetype: application-octstream ";
-                    tmp << "<br /> size: ";
-                    tmp << ssize / 1024 << "kbytes ";
-                    tmp << "</small></li>";
-                }
+                //文件大小
+                int ssize = boost::filesystem::file_size(pathname);
+                tmp << "<li><strong><a href='#'>";
+                tmp << name; 
+                tmp << "</a><br /></strong>";
+                tmp << "<small>modified: ";
+                tmp << mtime;
+                tmp << "<br /> filetype: ";
+                tmp << "<br /> size: ";
+                tmp << ssize / 1024 << "kbytes ";
+                tmp << "</small></li>";
             }
             //组织每个节点信息
             tmp << "</ol></div><hr /></div></body></html>";
