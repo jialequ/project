@@ -132,7 +132,6 @@ class Server
                 //文件下载/文件列表请求
                 if(boost::filesystem::is_directory(realpath))
                 {
-                    cout << "into is_directory" << endl;
                     //列表展示请求
                     ListShow(realpath, rsp._body);
                     rsp.SetHeader("Content-Type", "text/html");
