@@ -161,7 +161,7 @@ class Server
             {
                 close(pipe_in[0]);  //子进程写, 父进程读
                 close(pipe_out[1]); //子进程读, 父进程写
-                dup2(pipe_in[1], 1);
+                dup2(pipe_in[1], 1);//将标准输出重定向到管道的写端, 数据直接写入管道
                 dup2(pipe_out[0], 0);
                 //通过环境变量设置头部
                 // 名称  内容  是否覆盖

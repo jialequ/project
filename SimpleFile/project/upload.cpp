@@ -121,7 +121,7 @@ bool BoundaryParse(string& body, vector<Boundary>& list)
             return false;
         }
         //获取头部
-        //nex_pos只想数据的起始地址
+        //nex_pos指向数据的起始地址
         nex_pos = pos + tail.size();
         //找\r\n--boundary, 如果没有则格式错误
         pos = body.find(m_boundary, nex_pos);
