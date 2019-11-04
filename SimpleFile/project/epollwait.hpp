@@ -71,7 +71,7 @@ class Epoll
             }
             else if(nfds == 0)
             {
-                cout << "wait timeout" << endl;
+                //cout << "wait timeout" << endl;
                 return false;
             }
             for(int i = 0;i < nfds;i++)

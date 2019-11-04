@@ -11,6 +11,8 @@
 #include "threadpool.hpp"
 #include "http.hpp"
 #include <boost/filesystem.hpp>
+#include <stdlib.h>
+#include <fstream>
 using namespace std;
 
 #define WWW_ROOT "./www"
@@ -124,6 +126,7 @@ class Server
             if((req._method == "GET" && req._param.size() != 0) || req._method == "POST")
             {
                 //文件上传请求
+                CGIProcess(req, rsp);
             }
             else 
             {
@@ -137,22 +140,111 @@ class Server
                 else 
                 {
                     //文件下载请求
+                    Download(realpath, rsp._body);
+                    //响应一个字节流, 可以下载
+                    rsp.SetHeader("Content-Type", "application/octet-stream");
                 }
             }
             rsp._status = 200;
             return true;
         }
+        static bool CGIProcess(HttpRequest &req, HttpResponse &rsp)
+        {
+            int pipe_in[2], pipe_out[2];
+            if(pipe(pipe_in) < 0 || pipe(pipe_out) < 0)
+            {
+                cerr << "create pipe error" << endl;
+                return false;
+            }
+            int pid = fork();
+            if(pid < 0)
+            {
+                return false;
+            }
+            else if(pid == 0)
+            {
+                close(pipe_in[0]);  //子进程写, 父进程读
+                close(pipe_out[1]); //子进程读, 父进程写
+                dup2(pipe_in[1], 1);//将标准输出重定向到管道的写端, 数据直接写入管道
+                dup2(pipe_out[0], 0);
+                //通过环境变量设置头部
+                // 名称  内容  是否覆盖
+                setenv("METHOD", req._method.c_str(), 1);
+                setenv("PATH", req._path.c_str(), 1);
+                for(auto i : req._headers)
+                {
+                    setenv(i.first.c_str(), i.second.c_str(), 1);
+                }
+                string realpath = WWW_ROOT + req._path;
+                execl(realpath.c_str(), realpath.c_str(), NULL);
+                exit(0);
+            }
+            //父进程中往管道里面写数据
+            close(pipe_in[1]);
+            close(pipe_out[0]);
+            write(pipe_out[1], &req._body[0], req._body.size());
+            //父进程等待子进程输出
+            while(1)
+            {
+                char buf[1024] = {0};
+                int ret = read(pipe_in[0], buf, 1024);
+                if(ret == 0)
+                {
+                    break;
+                }
+                buf[ret] = '\0';
+                rsp._body += buf;
+            }
+            close(pipe_in[0]);
+            close(pipe_out[1]);
+            return true;
+        }
+        static bool Download(string& path, string& body)
+        {
+            //要将数据写到body中, 所以先把body重置成文件大小
+            int fsize = boost::filesystem::file_size(path);
+            body.resize(fsize);
+            ifstream file(path);
+            if(!file.is_open())
+            {
+                cerr << "open file error" << endl;
+                return false;
+            }
+            file.read(&body[0], fsize);
+            if(!file.good())
+            {
+                cerr << "read file data error" << endl;
+                return false;
+            }
+            file.close();
+            return true;
+        }
         static bool ListShow(string& path, string& body)
         {
+            // ./www/test/a.txt   ->  /test/a.txt
+            string www = WWW_ROOT;
+            size_t pos = path.find(WWW_ROOT);
+            if(pos == string::npos)
+            {
+                return false;
+            }
+            //真实路径, /test, 从www开始往后取
+            string req_path = path.substr(www.size());
             stringstream tmp;
             tmp << "<html><head><style>";
             tmp << "*{margin : 0;}";
             tmp << ".main-window {height : 100%; width : 80%; margin : 0 auto;}";
-            tmp << ".upload {position : relative; height : 20%; width : 100%; background-color : #33c0b9;}";
+            tmp << ".upload{position: relative; height: 20%; width: 100%; background-color: #33c0b9; text-align:center;}";
             tmp << ".listshow {position : relative; height : 80%; width : 100%; background : #6fcad6;}";
             tmp << "</style></head><body>";
             tmp << "<div class='main-window'>";
-            tmp << "<div class='upload'></div><hr />";
+            tmp << "<div class='upload'>";
+            tmp << "<form action='/upload' method='post' enctype='multipart/form-data'>";
+            tmp << "<div class='upload-btn'>";
+            tmp << "<input type='file' name='fileupload'>";
+            tmp << "<input type='submit' name='submit'>";
+            tmp << "</div></form>";
+            tmp << "</div><hr />";
             tmp << "<div class='listshow'><ol>";
             //组织每个节点信息
             boost::filesystem::directory_iterator begin(path);
@@ -163,19 +255,38 @@ class Server
                 string pathname = begin->path().string();
                 //对文件名进行截断, 只要文件名.
                 string name = begin->path().filename().string();
+                //uri
+                string uri = req_path + name;
                 //最后一次修改时间
                 int64_t mtime = boost::filesystem::last_write_time(pathname);
-                //文件大小
-                int ssize = boost::filesystem::file_size(pathname);
-                tmp << "<li><strong><a href='#'>";
-                tmp << name; 
-                tmp << "</a><br /></strong>";
-                tmp << "<small>modified: ";
-                tmp << mtime;
-                tmp << "<br /> filetype: ";
-                tmp << "<br /> size: ";
-                tmp << ssize / 1024 << "kbytes ";
-                tmp << "</small></li>";
+                if(boost::filesystem::is_directory(pathname))
+                {
+                    //如果是一个目录
+                    tmp << "<li><strong><a href='";
+                    tmp << uri << "'>";
+                    tmp << name << "/"; 
+                    tmp << "</a><br /></strong>";
+                    tmp << "<small>modified: ";
+                    tmp << mtime;
+                    tmp << "<br />filetype: directory ";
+                    tmp << "</small></li>";
+                }
+                else 
+                {
+                    //文件大小
+                    int ssize = boost::filesystem::file_size(pathname);
+                    //如果是一个普通文件
+                    tmp << "<li><strong><a href='";
+                    tmp << uri << "'>";
+                    tmp << name; 
+                    tmp << "</a><br /></strong>";
+                    tmp << "<small>modified: ";
+                    tmp << mtime;
+                    tmp << "<br /> filetype: application-octstream ";
+                    tmp << "<br /> size: ";
+                    tmp << ssize / 1024 << "kbytes ";
+                    tmp << "</small></li>";
+                }
             }
             //组织每个节点信息
             tmp << "</ol></div><hr /></div></body></html>";

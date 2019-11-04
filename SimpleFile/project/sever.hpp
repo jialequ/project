@@ -12,6 +12,7 @@
 #include "http.hpp"
 #include <boost/filesystem.hpp>
 #include <stdlib.h>
+#include <fstream>
 using namespace std;
 
 #define WWW_ROOT "./www"
@@ -138,10 +139,86 @@ class Server
                 }
                 else 
                 {
-                    //文件下载请求
+                    for(auto i : req._headers)
+                    {
+                        cout << "[" << i.first << "]---[" << i.second << "]" << endl;
+                    }
+                    //如果头信息中有Range, 则是断点续传
+                    //如果没有Range, 则是直接下载
+                    auto it = req._headers.find("Range");
+                    if(it == req._headers.end())
+                    {
+                        //文件下载请求
+                        Download(realpath, rsp._body);
+                        //响应一个字节流, 可以进行下载
+                        rsp.SetHeader("Content-Type", "application/octet-stream");
+                        //告诉服务器支持断点续传
+                        rsp.SetHeader("Accept-Ranges", "bytes");
+                        //资源的特定版本的标识符
+                        rsp.SetHeader("ETag", "abcdefghi");
+                    }
+                    else 
+                    {
+                        //断点续传
+                        string range = it->second;
+                        RangeDownload(realpath, range, rsp._body);
+                        rsp._status = 206;
+                        return true;
+                    }
                 }
             }
             rsp._status = 200;
+            return true;
+        }
+        static bool RangeDownload(string& path, string& range, string& body)
+        {
+            //Range: bytes=start-[end];
+            string unit = "bytes=";
+            size_t pos = range.find(unit);
+            if(pos == string::npos)
+            {
+                return false;
+            }
+            pos += unit.size();
+            size_t pos2 = range.find("-", pos);
+            if(pos2 == string::npos)
+            {
+                return false;
+            }
+            string start = range.substr(pos, pos2 - pos);
+            string end = range.substr(pos2 + 1);
+            stringstream tmp;
+            int64_t dig_start, dig_end;
+            tmp << start;
+            tmp >> dig_start;
+            tmp.clear();
+            if(end.size() == 0)
+            {
+                dig_end = boost::filesystem::file_size(path) - 1;
+            }
+            else 
+            {
+                tmp << end;
+                tmp >> dig_end;
+            }
+
+            int64_t len = dig_end - dig_start + 1;
+            body.resize(len);
+
+            ifstream file(path);
+            if(!file.is_open())
+            {
+                return false;
+            }
+            //file.seekg(ios::beg, dig_start);
+            file.read(&body[0], len);
+            if(!file.good())
+            {
+                cerr << "read error" << endl;
+                return false;
+            }
+
+            file.close();
             return true;
         }
         static bool CGIProcess(HttpRequest &req, HttpResponse &rsp)
@@ -193,6 +270,26 @@ class Server
             }
             close(pipe_in[0]);
             close(pipe_out[1]);
+            return true;
+        }
+        static bool Download(string& path, string& body)
+        {
+            //要将数据写到body中, 所以先把body重置成文件大小
+            int fsize = boost::filesystem::file_size(path);
+            body.resize(fsize);
+            ifstream file(path);
+            if(!file.is_open())
+            {
+                cerr << "open file error" << endl;
+                return false;
+            }
+            file.read(&body[0], fsize);
+            if(!file.good())
+            {
+                cerr << "read file data error" << endl;
+                return false;
+            }
+            file.close();
             return true;
         }
         static bool ListShow(string& path, string& body)

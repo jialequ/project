@@ -126,11 +126,21 @@ class TcpSocket
         }
         bool SocketSend(const string &buf)
         {
-            int ret = send(_sockfd, &buf[0], buf.size(), 0);
-            if(ret < 0)
+            size_t slen = 0;
+            while(slen < buf.size())
             {
-                cerr << "send error" << endl;
-                return false;
+                int ret = send(_sockfd, &buf[slen], buf.size() - slen, 0);
+                if(ret < 0)
+                {
+                    if(errno == EAGAIN)
+                    {
+                        usleep(1000);
+                        continue;
+                    }
+                    cerr << "send error" << endl;
+                    return false;
+                }
+                slen += ret;
             }
             return true;
         }

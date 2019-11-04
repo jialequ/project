@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <sstream>
+#include <fstream>
 #include <vector>
 using namespace std;
 
@@ -48,12 +49,14 @@ bool HeaderParse(string& header, Boundary& file)
         size_t pos = list[i].find(sep);
         if(pos == string::npos)
         {
+            cerr << "find :  error" << endl;
             return false;
         }
         string key = list[i].substr(0, pos);
         string val = list[i].substr(pos + sep.size());
-        if(key != "Content-Dispostion")
+        if(key != "Content-Disposition")
         {
+            cerr << "can not find Dispostion" << endl;
             continue;
         }
         string name_field = "fileupload";
@@ -62,17 +65,20 @@ bool HeaderParse(string& header, Boundary& file)
         pos = val.find(name_field);
         if(pos == string::npos)
         {
+            cerr << "have no fileupload area" << endl;
             continue; 
         }
         pos = val.find(filename_sep);
         if(pos == string::npos)
         {
+            cerr << "have no filename" << endl;
             return false;
         }
         pos += filename_sep.size();
         size_t next_pos = val.find("\"", pos);
         if(next_pos == string::npos)
         {
+            cerr << "have no \"" << endl;
             return false;
         }
         file._filename = val.substr(pos, next_pos - pos);
@@ -111,28 +117,31 @@ bool BoundaryParse(string& body, vector<Boundary>& list)
         return false;
     }
     //找第一块头部起始位置
-    nex_pos = pos + f_boundary.size();
-    while(pos <= body.size())
+    pos += f_boundary.size();
+    while(pos < body.size())
     {
         //找寻头部结尾
-        pos = body.find(tail, nex_pos);
-        if(pos == string::npos)
+        nex_pos = body.find(tail, pos);
+        if(nex_pos == string::npos)
         {
             return false;
         }
         //获取头部
+        string header = body.substr(pos, nex_pos - pos);
+
         //nex_pos指向数据的起始地址
-        nex_pos = pos + tail.size();
-        //找\r\n--boundary, 如果没有则格式错误
-        pos = body.find(m_boundary, nex_pos);
-        if(pos == string::npos)
+        pos = nex_pos + tail.size();
+        //找\r\n--boundary,数据的结束位置,  如果没有则格式错误
+        //next->\r\n--
+        nex_pos = body.find(m_boundary, pos);
+        if(nex_pos == string::npos)
         {
             return false;
         }
-        int64_t offset = nex_pos;
+        int64_t offset = pos;
         //下一个boundary的起始地址 - 数据的起始地址, 数据长度
-        int64_t len = pos - nex_pos;
-        nex_pos = pos + m_boundary.size();
+        int64_t len = nex_pos - pos;
+        nex_pos += m_boundary.size();//指向\r\n
         pos = body.find(craf, nex_pos);
         if(pos == string::npos)
         {
@@ -141,18 +150,24 @@ bool BoundaryParse(string& body, vector<Boundary>& list)
         //pos指向下一个m_boundary的头部起始地址
         //若没有m_boundary了, 则指向数据结尾, pos = body.size()
         pos += craf.size(); 
-        Boundary node;
-        node._data_len = len;
-        node._start_addr = offset;
+        Boundary file;
+        file._data_len = len;
+        file._start_addr = offset;
         //解析头部
-        string header = body.substr(pos, nex_pos - pos);
-         
+        if(HeaderParse(header, file) == false)
+        {
+            cerr << "header parse error" << endl;
+            return false;
+        }
+        list.push_back(file);
     }
+    cerr << "parse boundary over" << endl;
     return true;
 }
 
 bool StorageFile(string& body,vector<Boundary>& list)
 {
+    //存储文件
     for(size_t i = 0; i < list.size(); i++)
     {
         if(list[i]._name != "fileupload")
@@ -160,17 +175,28 @@ bool StorageFile(string& body,vector<Boundary>& list)
             continue;
         }
         string realpath = WWW_ROOT + list[i]._filename;
+        ofstream file(realpath);
+        if(!file.is_open())
+        {
+            cerr << "open file" << realpath << "failed" << endl;
+            return false;
+        }
+        file.write(&body[list[i]._start_addr], list[i]._data_len);
+        if(!file.good())
+        {
+            cerr << "write file error" << endl;
+            return false;
+        }
+        file.close();
     }
     return true;
 }
 
 int main(int argc, char* argv[], char* env[])
 {
-    for(int i = 0; env[i] != NULL; i++)
-    {
-        cerr << "env[i]=====[" << env[i] << "]" << endl;
-    }
     string body;
+    string error = "<html><h1>Failed!!!</h1></html>";
+    string suc = "<html><h1>success!!!</h1></html>";
     char* con_len = getenv("Content-Length");
     if(con_len != NULL)
     {
@@ -191,10 +217,29 @@ int main(int argc, char* argv[], char* env[])
             }
             rlen += ret;
         }
-        cerr << "body:[" << body << "]" << endl;
         vector<Boundary> list;
-        BoundaryParse(body, list);
-        StorageFile(body, list);
+        bool cur = BoundaryParse(body, list);
+        if(cur == false)
+        {
+            cerr << "BoundaryParse error" << endl;
+            cout << error;
+            return -1;
+        }
+        for(auto i : list)
+        {
+            cerr << "name:[" << i._name << "]" << endl;
+            cerr << "filename:[" << i._filename << "]" << endl;
+        }
+        cur = StorageFile(body, list);
+        if(cur == false)
+        {
+            cerr << "StorageFile error" << endl;
+            cout << error;
+            return -1;
+        }
+        cout << suc;
+        return 0;
     } 
+    cout << error;
     return 0;
 }
