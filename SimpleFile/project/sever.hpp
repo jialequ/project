@@ -210,7 +210,7 @@ class Server
             {
                 return false;
             }
-            //file.seekg(ios::beg, dig_start);
+            file.seekg(dig_start, ios::beg);
             file.read(&body[0], len);
             if(!file.good())
             {
@@ -307,8 +307,8 @@ class Server
             tmp << "<html><head><style>";
             tmp << "*{margin : 0;}";
             tmp << ".main-window {height : 100%; width : 80%; margin : 0 auto;}";
-            tmp << ".upload{position: relative; height: 20%; width: 100%; background-color: #33c0b9; text-align:center;}";
-            tmp << ".listshow {position : relative; height : 80%; width : 100%; background : #6fcad6;}";
+            tmp << ".upload{position: relative; height: 20%; width: 100%; background-color: #eb757dfb; text-align:center;}";
+            tmp << ".listshow {position : relative; height : 80%; width : 100%; background : #49b3dd;}";
             tmp << "</style></head><body>";
             tmp << "<div class='main-window'>";
             tmp << "<div class='upload'>";
@@ -336,7 +336,7 @@ class Server
                 {
                     //如果是一个目录
                     tmp << "<li><strong><a href='";
-                    tmp << uri << "'>";
+                    tmp << uri << "/'>";
                     tmp << name << "/"; 
                     tmp << "</a><br /></strong>";
                     tmp << "<small>modified: ";
