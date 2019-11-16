@@ -1,0 +1,4 @@
+certutil -hashfile .\list.html md5
+
+//断点续传
+Range: bytes=start_offset-[end-offset]

@@ -80,6 +80,7 @@ class Server
             _lst_sock.SocketClose();
             return true;
         }
+
     public:
         static void ThreadHandler(int sockfd)
         {
@@ -106,6 +107,7 @@ class Server
             sock.SocketClose();
             return;
         }
+
         static bool HttpProcess(HttpRequest &req, HttpResponse &rsp)
         {
             //如果请求是post请求----应该是CGI处理, 多进程进行处理
@@ -134,93 +136,80 @@ class Server
                 if(boost::filesystem::is_directory(realpath))
                 {
                     //列表展示请求
-                    ListShow(realpath, rsp._body);
-                    rsp.SetHeader("Content-Type", "text/html");
+                    ListShow(req, rsp);
                 }
                 else 
                 {
-                    for(auto i : req._headers)
-                    {
-                        cout << "[" << i.first << "]---[" << i.second << "]" << endl;
-                    }
-                    //如果头信息中有Range, 则是断点续传
-                    //如果没有Range, 则是直接下载
-                    auto it = req._headers.find("Range");
-                    if(it == req._headers.end())
-                    {
-                        //文件下载请求
-                        Download(realpath, rsp._body);
-                        //响应一个字节流, 可以进行下载
-                        rsp.SetHeader("Content-Type", "application/octet-stream");
-                        //告诉服务器支持断点续传
-                        rsp.SetHeader("Accept-Ranges", "bytes");
-                        //资源的特定版本的标识符
-                        rsp.SetHeader("ETag", "abcdefghi");
-                    }
-                    else 
-                    {
-                        //断点续传
-                        string range = it->second;
-                        RangeDownload(realpath, range, rsp._body);
-                        rsp._status = 206;
-                        return true;
-                    }
+                    RangeDownload(req, rsp);
+                    return true;
                 }
             }
-            rsp._status = 200;
             return true;
         }
-        static bool RangeDownload(string& path, string& range, string& body)
+
+        static int64_t str_to_digit(const string val)
+        {
+            stringstream tmp;
+            tmp << val;
+            int64_t dig = 0;
+            tmp >> dig;
+            return dig;
+        }
+
+        static bool RangeDownload(HttpRequest &req, HttpResponse &rsp)
         {
             //Range: bytes=start-[end];
-            string unit = "bytes=";
-            size_t pos = range.find(unit);
-            if(pos == string::npos)
+            string realpath = WWW_ROOT + req._path;
+            int64_t data_len = boost::filesystem::file_size(realpath);
+            int64_t last_mtime = boost::filesystem::last_write_time(realpath);
+            string etag = std::to_string(data_len) + std::to_string(last_mtime);
+            auto it = req._headers.find("Range");
+            if(it == req._headers.end())
             {
-                return false;
-            }
-            pos += unit.size();
-            size_t pos2 = range.find("-", pos);
-            if(pos2 == string::npos)
-            {
-                return false;
-            }
-            string start = range.substr(pos, pos2 - pos);
-            string end = range.substr(pos2 + 1);
-            stringstream tmp;
-            int64_t dig_start, dig_end;
-            tmp << start;
-            tmp >> dig_start;
-            tmp.clear();
-            if(end.size() == 0)
-            {
-                dig_end = boost::filesystem::file_size(path) - 1;
+                Download(realpath, 0, data_len, rsp._body);
+                rsp._status = 200;
             }
             else 
             {
-                tmp << end;
-                tmp >> dig_end;
+                string range = it->second;
+                //Range: bytes = start - end;
+                string unit = "bytes=";
+                size_t pos = range.find(unit);
+                if(pos == string::npos)
+                {
+                    return false;
+                }
+                pos += unit.size();
+                size_t pos2 = range.find("-", pos);
+                if(pos2 == string::npos)
+                {
+                    return false;
+                }
+                string start = range.substr(pos, pos2 - pos);
+                string end = range.substr(pos2 + 1);
+                int64_t dig_start, dig_end;
+                dig_start = str_to_digit(start);
+                if(end.size() == 0)
+                {
+                    dig_end = data_len - 1;
+                }
+                else 
+                {
+                    dig_end = str_to_digit(end);
+                }
+                int64_t range_len = dig_end - dig_start + 1;
+                Download(realpath, dig_start, range_len, rsp._body);
+                stringstream tmp;
+                tmp << "bytes " << dig_start << "-" << dig_end << "/" << data_len;
+                rsp.SetHeader("Content-Range", tmp.str());
+                rsp._status = 206;
             }
-
-            int64_t len = dig_end - dig_start + 1;
-            body.resize(len);
-
-            ifstream file(path);
-            if(!file.is_open())
-            {
-                return false;
-            }
-            file.seekg(dig_start, ios::beg);
-            file.read(&body[0], len);
-            if(!file.good())
-            {
-                cerr << "read error" << endl;
-                return false;
-            }
-
-            file.close();
+            rsp.SetHeader("Content-Type", "application/octet-stream");
+            rsp.SetHeader("Accept-Ranges", "bytes");
+            rsp.SetHeader("ETag", etag);
             return true;
         }
+
         static bool CGIProcess(HttpRequest &req, HttpResponse &rsp)
         {
             int pipe_in[2], pipe_out[2];
@@ -270,39 +259,34 @@ class Server
             }
             close(pipe_in[0]);
             close(pipe_out[1]);
+            rsp._status = 200;
             return true;
         }
-        static bool Download(string& path, string& body)
+
+        static bool Download(string& path, int64_t start, int64_t len, string& body)
         {
-            //要将数据写到body中, 所以先把body重置成文件大小
-            int fsize = boost::filesystem::file_size(path);
-            body.resize(fsize);
-            ifstream file(path);
+            body.resize(len);
+            std::ifstream file(path);
             if(!file.is_open())
             {
-                cerr << "open file error" << endl;
+                cerr << "open file failed" << endl;
                 return false;
             }
-            file.read(&body[0], fsize);
+            file.seekg(start, std::ios::beg);
+            file.read(&body[0], len);
             if(!file.good())
             {
-                cerr << "read file data error" << endl;
+                cerr << "read file data failed" << endl;
                 return false;
             }
             file.close();
             return true;
         }
-        static bool ListShow(string& path, string& body)
+
+        static bool ListShow(HttpRequest &req, HttpResponse &rsp)
         {
-            // ./www/test/a.txt   ->  /test/a.txt
-            string www = WWW_ROOT;
-            size_t pos = path.find(WWW_ROOT);
-            if(pos == string::npos)
-            {
-                return false;
-            }
-            //真实路径, /test, 从www开始往后取
-            string req_path = path.substr(www.size());
+            string realpath = WWW_ROOT + req._path;
+            string req_path = req._path;
             stringstream tmp;
             tmp << "<html><head><style>";
             tmp << "*{margin : 0;}";
@@ -320,7 +304,7 @@ class Server
             tmp << "</div><hr />";
             tmp << "<div class='listshow'><ol>";
             //组织每个节点信息
-            boost::filesystem::directory_iterator begin(path);
+            boost::filesystem::directory_iterator begin(realpath);
             boost::filesystem::directory_iterator end;
             for(; begin != end; ++begin)
             {
@@ -363,9 +347,12 @@ class Server
             }
             //组织每个节点信息
             tmp << "</ol></div><hr /></div></body></html>";
-            body = tmp.str();
+            rsp._body = tmp.str();
+            rsp._status = 200;
+            rsp.SetHeader("Content-Type", "text/html");
             return true;
         }
+
     private:
         TcpSocket _lst_sock;
         ThreadPool _pool;
